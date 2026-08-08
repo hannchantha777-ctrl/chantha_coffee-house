@@ -53,8 +53,8 @@ BANK_LOGOS = {
 # Product icons by category / name
 PRODUCT_ICONS = {
     "Espresso": "☕",
-    "Cappuccino": "🥛",
-    "Latte": "latte",
+    "Cappuccino": "☕",
+    "Latte": "🥛",
     "Americano": "☕",
     "Green Tea": "🍵",
     "Chocolate": "🍫",
@@ -340,7 +340,7 @@ with st.sidebar:
     st.markdown("""
     <div style="text-align:center; padding: 10px 0 6px 0;">
         <div style="font-size: 2.8rem;">☕</div>
-        <div style="font-size:1.35rem; font-weight:700; color:#fff;">Coffee House</div>
+        <div style="font-size:1.35rem; font-weight:700; color:#fff;">Coffee Chantha</div>
         <div style="font-size:0.85rem; opacity:0.85;">រីករាយ ទំនុកចិត្ត រសជាតឆ្ងាញ់</div>
     </div>
     """, unsafe_allow_html=True)
@@ -362,7 +362,7 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.caption("© Coffee House • Made with ❤️")
+    st.caption("© Coffee Chantha • Made with ❤️")
 
 # ==================== PAGES ====================
 
@@ -422,7 +422,7 @@ elif menu == "🛒 លក់ថ្មី":
         rec = st.session_state.last_receipt
         lines = []
         lines.append("=" * 34)
-        lines.append("   COFFEE HOUSE កាហ្វេហោស")
+        lines.append("   COFFEE CHANTHA កាហ្វេ ចន្ថា")
         lines.append("   *** RECEIPT / វិក័យប័ត្រ ***")
         lines.append("=" * 34)
         lines.append(f"Order # : {rec['order_id']}")
@@ -534,7 +534,7 @@ elif menu == "🛒 លក់ថ្មី":
             st.caption(f"≈ {int(total * USD_TO_KHR):,} ៛")
 
             payment = st.selectbox("វិធីបង់ប្រាក់", ["Cash", "ABA", "Wing", "ACLEDA", "Canadia", "Other"])
-            staff = st.selectbox("បុគ្គលិក", ["Chantha", "Sokha", "Dara", "Pisey", "Other"])
+            staff = st.selectbox("បុគ្គលិក", ["Chantha", "Hong", "Ram", "Phearom","Ranin",  "Other"])
 
             b1, b2 = st.columns(2)
             with b1:
@@ -704,13 +704,13 @@ elif menu == "📞 ទំនាក់ទំនង":
     st.markdown("## 📞 ទំនាក់ទំនង")
     st.markdown("""
     <div style="background:white; border-radius:18px; padding:28px; border:1px solid #e8dfd4; max-width:520px;">
-        <h3 style="color:#4a3728; margin-top:0;">☕ Coffee House</h3>
+        <h3 style="color:#4a3728; margin-top:0;">☕ Coffee Chantha</h3>
         <p style="font-size:1.05rem; line-height:1.9;">
-            📱 <b>ទូរសព្ទ</b>: 012 345 678<br>
-            📲 <b>Telegram</b>: @CoffeeHouseKH<br>
-            📘 <b>Facebook Page</b>: facebook.com/CoffeeHouseKH<br>
-            🎵 <b>TikTok</b>: @coffeehouse.kh<br>
-            📧 <b>Email</b>: hello@coffeehouse.kh<br>
+            📱 <b>ទូរសព្ទ</b>: 093 495 903<br>
+            📲 <b>Telegram</b>: @CoffeeChanthaKH<br>
+            📘 <b>Facebook Page</b>: facebook.com/CoffeeChanthaKH<br>
+            🎵 <b>TikTok</b>: @coffeechantha.kh<br>
+            📧 <b>Email</b>: hello@coffeechantha.kh<br>
             📍 <b>អាសយដ្ឋាន</b>: ភ្នំពេញ, កម្ពុជា
         </p>
         <p style="color:#8b7355; margin-bottom:0;">បើករាល់ថ្ងៃ 7:00 AM – 9:00 PM</p>
