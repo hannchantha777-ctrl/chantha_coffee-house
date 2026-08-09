@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Coffee House POS — Streamlit + SQLite (Full Enhanced)
+Coffee Chantha — Streamlit + Supabase (PostgreSQL Standard)
 """
 
-import sqlite3
 import streamlit as st
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, date
+from sqlalchemy import create_engine, text
 
 try:
     import qrcode
@@ -18,7 +18,7 @@ except ImportError:
 
 # ==================== PAGE CONFIG (MUST BE FIRST) ====================
 st.set_page_config(
-    page_title="Coffee House POS",
+    page_title="Coffee Chantha",
     page_icon="☕",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -26,11 +26,10 @@ st.set_page_config(
 
 # ==================== PATH & CONSTANTS ====================
 APP_DIR = Path(__file__).resolve().parent
-DB_PATH = APP_DIR / "coffee_shop.db"
 DATA_DIR = APP_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-# Exchange rate (អាចកែបាន)
+# Exchange rate
 USD_TO_KHR = 4100
 
 QR_FILES = {
@@ -50,7 +49,6 @@ BANK_LOGOS = {
     "Other": "💳 Other",
 }
 
-# Product icons by category / name
 PRODUCT_ICONS = {
     "Espresso": "☕",
     "Cappuccino": "☕",
@@ -68,135 +66,146 @@ def get_product_icon(name, category):
         return PRODUCT_ICONS[name]
     return PRODUCT_ICONS.get(category, "☕")
 
-# ==================== DATABASE ====================
-def get_connection():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ==================== POSTGRESQL / SUPABASE DATABASE ====================
+@st.cache_resource
+def get_db_engine():
+    """បង្កើត Connection Engine ទៅកាន់ Supabase PostgreSQL"""
+    try:
+        db_url = st.secrets["postgres"]["url"]
+        engine = create_engine(
+            db_url,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            connect_args={"connect_timeout": 15}
+        )
+        # សាកល្បងភ្ជាប់ភ្លាម
+        with engine.connect() as test_conn:
+            test_conn.execute(text("SELECT 1"))
+        return engine
+    except KeyError as e:
+        st.error("❌ មិនឃើញ key ក្នុង secrets.toml")
+        st.code('''[postgres]
+url = "postgresql://postgres:Chantha%4003031991@db.oniprrzdrodlfloddoce.supabase.co:5432/postgres"''')
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ មិនអាចតភ្ជាប់ Database បានទេ:\n\n{type(e).__name__}: {e}")
+        st.info("ពិនិត្យ៖ Password, Internet, និង Supabase project status")
+        st.stop()
+
 
 def init_db():
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("""
+    """បង្កើត Table ប្រសិនបើមិនទាន់មាន"""
+    engine = get_db_engine()          # ← ត្រូវយក engine មកសិន
+    with engine.begin() as conn:      # ← ត្រូវ .begin() មិនមែន with engine ផ្ទាល់
+        # បង្កើត Table Products
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS products (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                name_kh TEXT,
-                category TEXT,
-                price REAL,
-                stock INTEGER,
-                unit TEXT,
-                active TEXT DEFAULT 'Yes'
-            )
-        """)
-        cur.execute("""
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                name_kh VARCHAR(255),
+                category VARCHAR(100),
+                price NUMERIC(10, 2),
+                stock INT,
+                unit VARCHAR(50),
+                active VARCHAR(10) DEFAULT 'Yes'
+            );
+        """))
+        
+        # បង្កើត Table Orders
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER,
-                date TEXT,
-                time TEXT,
-                product_id INTEGER,
-                product_name TEXT,
-                qty INTEGER,
-                unit_price REAL,
-                total REAL,
-                payment TEXT,
-                staff TEXT
-            )
-        """)
-        cur.execute("SELECT COUNT(*) FROM products")
-        if cur.fetchone()[0] == 0:
+                id SERIAL PRIMARY KEY,
+                order_id INT,
+                date VARCHAR(20),
+                time VARCHAR(20),
+                product_id INT,
+                product_name VARCHAR(255),
+                qty INT,
+                unit_price NUMERIC(10, 2),
+                total NUMERIC(10, 2),
+                payment VARCHAR(50),
+                staff VARCHAR(100)
+            );
+        """))
+        
+        # បញ្ចូលទិន្នន័យគំរូប្រសិនបើ Table នៅទទេ
+        result = conn.execute(text("SELECT COUNT(*) FROM products;")).fetchone()
+        if result[0] == 0:
             sample = [
-                (1, "Espresso", "អេស្ព្រេសូ", "Coffee", 1.50, 100, "cup", "Yes"),
-                (2, "Cappuccino", "កាពុចីណូ", "Coffee", 2.00, 80, "cup", "Yes"),
-                (3, "Latte", "ឡាតេ", "Coffee", 2.25, 90, "cup", "Yes"),
-                (4, "Americano", "អាមេរិកាណូ", "Coffee", 1.75, 70, "cup", "Yes"),
-                (5, "Green Tea", "តែបៃតង", "Tea", 1.50, 60, "cup", "Yes"),
-                (6, "Chocolate", "សូកូឡា", "Other", 2.50, 50, "cup", "Yes"),
+                {"id": 1, "name": "Espresso", "name_kh": "អេស្ព្រេសូ", "category": "Coffee", "price": 1.50, "stock": 100, "unit": "cup", "active": "Yes"},
+                {"id": 2, "name": "Cappuccino", "name_kh": "កាពុចីណូ", "category": "Coffee", "price": 2.00, "stock": 80, "unit": "cup", "active": "Yes"},
+                {"id": 3, "name": "Latte", "name_kh": "ឡាតេ", "category": "Coffee", "price": 2.25, "stock": 90, "unit": "cup", "active": "Yes"},
+                {"id": 4, "name": "Americano", "name_kh": "អាមេរិកាណូ", "category": "Coffee", "price": 1.75, "stock": 70, "unit": "cup", "active": "Yes"},
+                {"id": 5, "name": "Green Tea", "name_kh": "តែបៃតង", "category": "Tea", "price": 1.50, "stock": 60, "unit": "cup", "active": "Yes"},
+                {"id": 6, "name": "Chocolate", "name_kh": "សូកូឡា", "category": "Other", "price": 2.50, "stock": 50, "unit": "cup", "active": "Yes"},
             ]
-            cur.executemany(
-                "INSERT INTO products (id, name, name_kh, category, price, stock, unit, active) VALUES (?,?,?,?,?,?,?,?)",
-                sample
-            )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        st.error(f"Database error: {e}")
-
+            for p in sample:
+                conn.execute(text("""
+                    INSERT INTO products (id, name, name_kh, category, price, stock, unit, active)
+                    VALUES (:id, :name, :name_kh, :category, :price, :stock, :unit, :active)
+                """), p)
 def load_products(include_inactive=False):
-    try:
-        conn = get_connection()
-        q = "SELECT * FROM products ORDER BY id" if include_inactive else "SELECT * FROM products WHERE active = 'Yes' ORDER BY id"
-        rows = conn.execute(q).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    except:
-        return []
+    engine = get_db_engine()
+    q = "SELECT * FROM products ORDER BY id" if include_inactive else "SELECT * FROM products WHERE active = 'Yes' ORDER BY id"
+    with engine.connect() as conn:
+        df = pd.read_sql(q, conn)
+        return df.to_dict(orient="records")
 
 def load_orders():
-    try:
-        conn = get_connection()
-        rows = conn.execute("SELECT * FROM orders ORDER BY order_id DESC, id DESC").fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    except:
-        return []
+    engine = get_db_engine()
+    q = "SELECT * FROM orders ORDER BY order_id DESC, id DESC"
+    with engine.connect() as conn:
+        df = pd.read_sql(q, conn)
+        return df.to_dict(orient="records")
 
 def get_next_order_id():
-    try:
-        conn = get_connection()
-        result = conn.execute("SELECT MAX(order_id) FROM orders").fetchone()[0]
-        conn.close()
-        return (result or 1000) + 1
-    except:
-        return 1001
+    engine = get_db_engine()
+    with engine.connect() as conn:
+        res = conn.execute(text("SELECT MAX(order_id) FROM orders;")).fetchone()[0]
+        return (res or 1000) + 1
 
 def save_order(lines):
-    conn = get_connection()
-    cur = conn.cursor()
-    for line in lines:
-        cur.execute("""
-            INSERT INTO orders (order_id, date, time, product_id, product_name, qty, unit_price, total, payment, staff)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
-        """, line)
-        pid, qty = line[3], line[5]
-        cur.execute("UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ?", (qty, pid))
-    conn.commit()
-    conn.close()
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        for line in lines:
+            conn.execute(text("""
+                INSERT INTO orders (order_id, date, time, product_id, product_name, qty, unit_price, total, payment, staff)
+                VALUES (:order_id, :date, :time, :product_id, :product_name, :qty, :unit_price, :total, :payment, :staff)
+            """), {
+                "order_id": line[0], "date": line[1], "time": line[2],
+                "product_id": line[3], "product_name": line[4], "qty": line[5],
+                "unit_price": line[6], "total": line[7], "payment": line[8], "staff": line[9]
+            })
+            conn.execute(text("""
+                UPDATE products SET stock = GREATEST(0, stock - :qty) WHERE id = :id
+            """), {"qty": line[5], "id": line[3]})
 
 def update_product(product_id, name, name_kh, category, price, stock, unit):
-    conn = get_connection()
-    conn.execute("""
-        UPDATE products SET name=?, name_kh=?, category=?, price=?, stock=?, unit=? WHERE id=?
-    """, (name, name_kh, category, price, stock, unit, product_id))
-    conn.commit()
-    conn.close()
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE products SET name=:name, name_kh=:name_kh, category=:category, price=:price, stock=:stock, unit=:unit WHERE id=:id
+        """), {"name": name, "name_kh": name_kh, "category": category, "price": price, "stock": stock, "unit": unit, "id": product_id})
 
 def soft_delete_product(product_id):
-    conn = get_connection()
-    conn.execute("UPDATE products SET active = 'No' WHERE id = ?", (product_id,))
-    conn.commit()
-    conn.close()
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE products SET active = 'No' WHERE id = :id"), {"id": product_id})
 
 def restore_product(product_id):
-    conn = get_connection()
-    conn.execute("UPDATE products SET active = 'Yes' WHERE id = ?", (product_id,))
-    conn.commit()
-    conn.close()
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE products SET active = 'Yes' WHERE id = :id"), {"id": product_id})
 
 def add_product(name, name_kh, category, price, stock, unit):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT MAX(id) FROM products")
-    new_id = (cur.fetchone()[0] or 0) + 1
-    cur.execute("""
-        INSERT INTO products (id, name, name_kh, category, price, stock, unit, active)
-        VALUES (?,?,?,?,?,?,?,'Yes')
-    """, (new_id, name, name_kh, category, price, stock, unit))
-    conn.commit()
-    conn.close()
-    return new_id
+    engine = get_db_engine()
+    with engine.begin() as conn:
+        res = conn.execute(text("SELECT COALESCE(MAX(id), 0) + 1 FROM products;")).fetchone()[0]
+        conn.execute(text("""
+            INSERT INTO products (id, name, name_kh, category, price, stock, unit, active)
+            VALUES (:id, :name, :name_kh, :category, :price, :stock, :unit, 'Yes')
+        """), {"id": res, "name": name, "name_kh": name_kh, "category": category, "price": price, "stock": stock, "unit": unit})
+        return res
 
 def generate_qr(data: str, size=200):
     if not HAS_QR:
@@ -297,7 +306,7 @@ div[data-testid="stMetric"] {
     margin-bottom: 6px;
 }
 
-/* Receipt - FIXED WIDTH */
+/* Receipt */
 .receipt-box {
     background: #fffef8;
     border: 2px dashed #6F4E37;
@@ -362,11 +371,11 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.caption("© Coffee Chantha • Made with ❤️")
+    st.caption("© Coffee Chantha • Supabase Cloud DB")
 
 # ==================== PAGES ====================
 
-# ---------- DASHBOARD + SLIDESHOW ----------
+# ---------- DASHBOARD ----------
 if menu == "🏠 ទំព័រដើម":
     st.markdown("## 🏠 ទំព័រដើម")
 
@@ -374,7 +383,7 @@ if menu == "🏠 ទំព័រដើម":
     orders = load_orders()
     today = date.today().strftime("%Y-%m-%d")
     today_orders = [o for o in orders if o["date"] == today]
-    revenue = sum(o["total"] for o in today_orders)
+    revenue = sum(float(o["total"]) for o in today_orders)
     order_ids = set(o["order_id"] for o in today_orders)
     low = [p for p in products if p["stock"] <= 20]
 
@@ -384,7 +393,6 @@ if menu == "🏠 ទំព័រដើម":
     c3.metric("📦 ផលិតផល", len(products))
     c4.metric("⚠️ ស្តុកទាប", len(low))
 
-    # ----- Slideshow / Playground -----
     st.markdown("### ✨ ម៉ឺនុយផលិតផលថ្មីៗ")
     if products:
         cols = st.columns(3)
@@ -396,7 +404,7 @@ if menu == "🏠 ទំព័រដើម":
                     <div class="product-icon">{icon}</div>
                     <div style="font-weight:700; font-size:1.15rem; color:#4a3728;">{p['name']}</div>
                     <div style="color:#8b7355; font-size:0.9rem;">{p['name_kh']}</div>
-                    <div style="margin-top:8px; font-size:1.3rem; font-weight:700; color:#6F4E37;">${p['price']:.2f}</div>
+                    <div style="margin-top:8px; font-size:1.3rem; font-weight:700; color:#6F4E37;">${float(p['price']):.2f}</div>
                 </div>
                 """, unsafe_allow_html=True)
     else:
@@ -417,7 +425,6 @@ if menu == "🏠 ទំព័រដើម":
 elif menu == "🛒 លក់ថ្មី":
     st.markdown("## 🛒 លក់ថ្មី")
 
-    # Receipt
     if st.session_state.last_receipt:
         rec = st.session_state.last_receipt
         lines = []
@@ -446,12 +453,10 @@ elif menu == "🛒 លក់ថ្មី":
             st.markdown("### 🧾 វិក័យប័ត្រ")
             st.markdown(f"<div class='receipt-box'>{receipt_text}</div>", unsafe_allow_html=True)
 
-            # Print + Download
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.download_button("💾 ទាញយក", receipt_text, f"receipt_{rec['order_id']}.txt", use_container_width=True)
             with c2:
-                # Print via browser
                 st.markdown(f"""
                 <a href="javascript:void(0)" onclick="window.print()" style="
                     display:block; text-align:center; background:linear-gradient(135deg,#6F4E37,#5a3e2b);
@@ -480,8 +485,6 @@ elif menu == "🛒 លក់ថ្មី":
 
     with left:
         st.subheader("ជ្រើសរើសផលិតផល")
-
-        # Search
         search = st.text_input("🔍 ស្វែងរកផលិតផល", placeholder="វាយឈ្មោះ...")
         cats = ["ទាំងអស់"] + sorted({p["category"] for p in products})
         selected_cat = st.selectbox("ប្រភេទ", cats)
@@ -491,7 +494,7 @@ elif menu == "🛒 លក់ថ្មី":
             filtered = [p for p in filtered if p["category"] == selected_cat]
         if search.strip():
             q = search.strip().lower()
-            filtered = [p for p in filtered if q in p["name"].lower() or q in p["name_kh"].lower()]
+            filtered = [p for p in filtered if q in p["name"].lower() or (p["name_kh"] and q in p["name_kh"].lower())]
 
         cols = st.columns(3)
         for i, p in enumerate(filtered):
@@ -502,7 +505,7 @@ elif menu == "🛒 លក់ថ្មី":
                     <div class="product-icon">{icon}</div>
                     <div style="font-weight:700; color:#4a3728;">{p['name']}</div>
                     <div style="color:#8b7355; font-size:0.88rem;">{p['name_kh']}</div>
-                    <div style="margin:6px 0; font-size:1.25rem; font-weight:700; color:#6F4E37;">${p['price']:.2f}</div>
+                    <div style="margin:6px 0; font-size:1.25rem; font-weight:700; color:#6F4E37;">${float(p['price']):.2f}</div>
                     <div style="font-size:0.82rem; color:#888;">ស្តុក: {p['stock']} {p['unit']}</div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -513,7 +516,7 @@ elif menu == "🛒 លក់ថ្មី":
                         if p["id"] in st.session_state.cart:
                             st.session_state.cart[p["id"]]["qty"] += 1
                         else:
-                            st.session_state.cart[p["id"]] = {"name": p["name"], "price": p["price"], "qty": 1}
+                            st.session_state.cart[p["id"]] = {"name": p["name"], "price": float(p["price"]), "qty": 1}
                         st.rerun()
 
     with right:
@@ -521,7 +524,7 @@ elif menu == "🛒 លក់ថ្មី":
         if not st.session_state.cart:
             st.info("កន្ត្រក់ទទេ")
         else:
-            total = 0
+            total = 0.0
             for pid, item in st.session_state.cart.items():
                 sub = item["price"] * item["qty"]
                 total += sub
@@ -534,7 +537,7 @@ elif menu == "🛒 លក់ថ្មី":
             st.caption(f"≈ {int(total * USD_TO_KHR):,} ៛")
 
             payment = st.selectbox("វិធីបង់ប្រាក់", ["Cash", "ABA", "Wing", "ACLEDA", "Canadia", "Other"])
-            staff = st.selectbox("បុគ្គលិក", ["Chantha", "Hong", "Ram", "Phearom","Ranin",  "Other"])
+            staff = st.selectbox("បុគ្គលិក", ["Chantha", "Hong", "Ram", "Phearom", "Ranin", "Other"])
 
             b1, b2 = st.columns(2)
             with b1:
@@ -652,8 +655,9 @@ elif menu == "📋 ប្រវត្តិលក់":
         st.info("មិនទាន់មានទិន្នន័យ")
     else:
         df = pd.DataFrame(orders)[["order_id", "date", "time", "product_name", "qty", "total", "payment", "staff"]]
+        df["total"] = df["total"].astype(float)
         st.dataframe(df.style.format({"total": "${:.2f}"}), use_container_width=True, hide_index=True)
-        st.markdown(f"**សរុប: ${sum(o['total'] for o in orders):.2f}** | ចំនួន: {len(orders)}")
+        st.markdown(f"**សរុប: ${df['total'].sum():.2f}** | ចំនួន: {len(df)}")
 
 # ---------- REPORT ----------
 elif menu == "📊 របាយការណ៍":
@@ -664,7 +668,8 @@ elif menu == "📊 របាយការណ៍":
     else:
         daily = {}
         for o in orders:
-            daily[o["date"]] = daily.get(o["date"], 0) + o["total"]
+            tot = float(o["total"])
+            daily[o["date"]] = daily.get(o["date"], 0) + tot
         daily_df = pd.DataFrame([{"Date": k, "Revenue": v} for k, v in sorted(daily.items(), reverse=True)])
         st.subheader("💰 ចំណូលប្រចាំថ្ងៃ")
         st.dataframe(daily_df.style.format({"Revenue": "${:.2f}"}), use_container_width=True, hide_index=True)
@@ -672,10 +677,12 @@ elif menu == "📊 របាយការណ៍":
 
         prod = {}
         for o in orders:
-            if o["product_name"] not in prod:
-                prod[o["product_name"]] = {"qty": 0, "rev": 0}
-            prod[o["product_name"]]["qty"] += o["qty"]
-            prod[o["product_name"]]["rev"] += o["total"]
+            pname = o["product_name"]
+            tot = float(o["total"])
+            if pname not in prod:
+                prod[pname] = {"qty": 0, "rev": 0}
+            prod[pname]["qty"] += o["qty"]
+            prod[pname]["rev"] += tot
         prod_df = pd.DataFrame([
             {"Product": k, "Qty": v["qty"], "Revenue": v["rev"]}
             for k, v in sorted(prod.items(), key=lambda x: -x[1]["qty"])
